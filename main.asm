@@ -4,12 +4,6 @@
 # When: 12/5/18
 # How:  Prompt user for src file, dst file, and passphrase. XOR characters
 
-# li $a0, SRC_PATH
-# li $a1, 0x41
-# li $a2, 0x1ff
-# li $v0, 13
-# syscall
-
 .data
              .align  2
 buffer:      .space  1024    # Reading lines in file
@@ -20,6 +14,7 @@ src_file:    .asciiz "Enter src file path: "
 dst_file:    .asciiz "Enter dst file path: "
 passphrase:  .asciiz "Enter passphrase: "
 finished:    .asciiz "Finished encrypting file!\n"
+closing:     .asciiz "Closing both files\n"
 
 .text
 .globl main
@@ -74,13 +69,62 @@ open_files:
     # s0 = src file descriptor
     # s1 = dst file descriptor
 
+    li $t6, 0
+    la $s3, passphrase
+
+passphrase_length:
+    lbu $t5, 0($s3)
+    addi $t6, $t6, 1
+    bne $t5, 0, passphrase_length
+    move $s3, $t6
+
+    # s3 = passphrase length
+
+set_t5_t6:
+    li $t5, 0 # current buffer index
+    li $t6, 0 # current passphrase index
+
 read_file_contents:
     move $a0, $s0
     la $a1, buffer
     li $a2, 1024
     li $v0, 14
     syscall
+    beq $v0, 0, close_files
     move $s2, $v0
+
+    # s2 = buffer length
+
+load_buffer:
+    la $t2, buffer
+
+get_buffer_char:
+    beq $t5, $s2, write_to_file
+    lbu $t0, 0($t2)
+    addi $t2, $t2, 1
+    beq $t0, 10, get_buffer_char
+    beq $t0, 0, get_buffer_char
+
+get_pass_char:
+    beq $t6, $s3, load_pass_again
+    lbu $t1, 0($t3)
+    addi $t3, $t3, 1
+    addi $t6, $t6, 1
+    j xor_characters
+
+load_pass_again:
+    la $t3, passphrase
+    li $t6, 0
+    lbu $t1, 0($t3)
+    addi $t3, $t3, 1
+    addi $t6, $t6, 1
+
+xor_characters:
+    xor $t0, $t0, $t1
+    addi $t2, $t2, -1
+    sb $t0, 0($t2)
+    addi $t2, $t2, 1
+    j get_buffer_char
 
 write_to_file:
     move $a0, $s1
@@ -88,6 +132,8 @@ write_to_file:
     move $a2, $s2
     li $v0, 15
     syscall
+    li $t5, 0
+    j read_file_contents
 
 close_files:
     move $a0, $s0
@@ -105,4 +151,3 @@ exit:
 
     li $v0, 10		# terminate the program
     syscall
-
